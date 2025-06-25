@@ -5,8 +5,14 @@ import { Chunk } from './Chunk';
 export class World {
   private chunks: Map<string, Chunk> = new Map();
   private scene: THREE.Scene;
-  private chunkSize = 16;
-  private worldHeight = 64;
+  private chunkSize = 32; // Increased from 16 to 32
+  private worldHeight = 128; // Increased from 64 to 128
+  private renderDistance = 8; // Increased render distance
+  private spawnPoint = new THREE.Vector3(0, 70, 0);
+  private worldBounds = {
+    min: new THREE.Vector3(-2000, 0, -2000),
+    max: new THREE.Vector3(2000, this.worldHeight, 2000)
+  };
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -14,9 +20,9 @@ export class World {
   }
 
   private generateInitialChunks() {
-    const chunkRadius = 4;
-    for (let x = -chunkRadius; x <= chunkRadius; x++) {
-      for (let z = -chunkRadius; z <= chunkRadius; z++) {
+    // Generate more chunks for a bigger world
+    for (let x = -this.renderDistance; x <= this.renderDistance; x++) {
+      for (let z = -this.renderDistance; z <= this.renderDistance; z++) {
         this.generateChunk(x, z);
       }
     }
@@ -30,6 +36,82 @@ export class World {
     chunk.generate();
     chunk.createMesh(this.scene);
     this.chunks.set(chunkKey, chunk);
+  }
+
+  // Dynamic chunk loading based on player position
+  updateChunks(playerPosition: THREE.Vector3) {
+    const playerChunkX = Math.floor(playerPosition.x / this.chunkSize);
+    const playerChunkZ = Math.floor(playerPosition.z / this.chunkSize);
+
+    // Generate new chunks around player
+    for (let x = playerChunkX - this.renderDistance; x <= playerChunkX + this.renderDistance; x++) {
+      for (let z = playerChunkZ - this.renderDistance; z <= playerChunkZ + this.renderDistance; z++) {
+        const distance = Math.sqrt((x - playerChunkX) ** 2 + (z - playerChunkZ) ** 2);
+        if (distance <= this.renderDistance) {
+          this.generateChunk(x, z);
+        }
+      }
+    }
+
+    // Remove distant chunks to save memory
+    const chunksToRemove: string[] = [];
+    this.chunks.forEach((chunk, key) => {
+      const [chunkX, chunkZ] = key.split(',').map(Number);
+      const distance = Math.sqrt((chunkX - playerChunkX) ** 2 + (chunkZ - playerChunkZ) ** 2);
+      if (distance > this.renderDistance + 2) {
+        chunksToRemove.push(key);
+      }
+    });
+
+    chunksToRemove.forEach(key => {
+      const chunk = this.chunks.get(key);
+      if (chunk) {
+        chunk.dispose(this.scene);
+        this.chunks.delete(key);
+      }
+    });
+  }
+
+  // Check if player is out of bounds
+  isOutOfBounds(position: THREE.Vector3): boolean {
+    return position.x < this.worldBounds.min.x || 
+           position.x > this.worldBounds.max.x ||
+           position.y < this.worldBounds.min.y ||
+           position.y > this.worldBounds.max.y ||
+           position.z < this.worldBounds.min.z ||
+           position.z > this.worldBounds.max.z;
+  }
+
+  // Get safe spawn point
+  getSpawnPoint(): THREE.Vector3 {
+    return this.spawnPoint.clone();
+  }
+
+  // Find a safe spawn location
+  findSafeSpawnPoint(nearPosition?: THREE.Vector3): THREE.Vector3 {
+    const searchCenter = nearPosition || new THREE.Vector3(0, 0, 0);
+    
+    // Search in expanding circles for a safe spot
+    for (let radius = 0; radius < 100; radius += 5) {
+      for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 8) {
+        const testX = Math.floor(searchCenter.x + Math.cos(angle) * radius);
+        const testZ = Math.floor(searchCenter.z + Math.sin(angle) * radius);
+        
+        // Find ground level
+        for (let y = this.worldHeight - 1; y > 0; y--) {
+          if (this.getBlock(testX, y, testZ) !== BlockType.AIR) {
+            // Check if there's space above for the player
+            if (this.getBlock(testX, y + 1, testZ) === BlockType.AIR && 
+                this.getBlock(testX, y + 2, testZ) === BlockType.AIR) {
+              return new THREE.Vector3(testX + 0.5, y + 2, testZ + 0.5);
+            }
+          }
+        }
+      }
+    }
+    
+    // Fallback to original spawn point
+    return this.spawnPoint.clone();
   }
 
   getBlock(x: number, y: number, z: number): BlockType {
@@ -105,5 +187,46 @@ export class World {
     }
 
     return null;
+  }
+
+  // Get world data for saving
+  getWorldData(): any {
+    const chunkData: any = {};
+    this.chunks.forEach((chunk, key) => {
+      chunkData[key] = chunk.getBlockData();
+    });
+
+    return {
+      chunks: chunkData,
+      spawnPoint: this.spawnPoint.toArray(),
+      worldBounds: {
+        min: this.worldBounds.min.toArray(),
+        max: this.worldBounds.max.toArray()
+      },
+      chunkSize: this.chunkSize,
+      worldHeight: this.worldHeight
+    };
+  }
+
+  // Load world data
+  loadWorldData(data: any) {
+    if (data.chunks) {
+      // Clear existing chunks
+      this.chunks.forEach(chunk => chunk.dispose(this.scene));
+      this.chunks.clear();
+
+      // Load saved chunks
+      Object.entries(data.chunks).forEach(([key, chunkData]) => {
+        const [chunkX, chunkZ] = key.split(',').map(Number);
+        const chunk = new Chunk(chunkX, chunkZ, this.chunkSize, this.worldHeight);
+        chunk.loadBlockData(chunkData);
+        chunk.createMesh(this.scene);
+        this.chunks.set(key, chunk);
+      });
+    }
+
+    if (data.spawnPoint) {
+      this.spawnPoint.fromArray(data.spawnPoint);
+    }
   }
 }
