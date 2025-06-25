@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Download, Upload, Trash2, Clock, HardDrive } from 'lucide-react';
+import { Save, Download, Upload, Trash2, Clock, HardDrive, Cloud, Monitor } from 'lucide-react';
 
 interface SaveFile {
   id: string;
@@ -8,6 +8,7 @@ interface SaveFile {
   size: string;
   isAutoSave: boolean;
   worldData: any;
+  saveType: 'local' | 'cloud';
 }
 
 interface SaveManagerProps {
@@ -27,18 +28,12 @@ export const SaveManager: React.FC<SaveManagerProps> = ({
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
   const [autoSaveInterval, setAutoSaveInterval] = useState(5); // minutes
   const [saveName, setSaveName] = useState('');
+  const [saveType, setSaveType] = useState<'local' | 'cloud'>('cloud');
+  const [cloudConnected, setCloudConnected] = useState(true); // Simulated cloud connection
 
   useEffect(() => {
-    // Load saves from localStorage
-    const savedFiles = localStorage.getItem('voxelcraft-saves');
-    if (savedFiles) {
-      const parsedSaves = JSON.parse(savedFiles).map((save: any) => ({
-        ...save,
-        timestamp: new Date(save.timestamp)
-      }));
-      setSaves(parsedSaves);
-    }
-
+    loadSaves();
+    
     // Load auto-save settings
     const autoSaveSettings = localStorage.getItem('voxelcraft-autosave-settings');
     if (autoSaveSettings) {
@@ -64,6 +59,36 @@ export const SaveManager: React.FC<SaveManagerProps> = ({
     };
   }, [autoSaveEnabled, autoSaveInterval, currentWorldData]);
 
+  const loadSaves = () => {
+    // Load local saves
+    const localSaves = localStorage.getItem('voxelcraft-saves');
+    let allSaves: SaveFile[] = [];
+    
+    if (localSaves) {
+      const parsedLocalSaves = JSON.parse(localSaves).map((save: any) => ({
+        ...save,
+        timestamp: new Date(save.timestamp),
+        saveType: 'local'
+      }));
+      allSaves = [...allSaves, ...parsedLocalSaves];
+    }
+
+    // Load cloud saves (simulated)
+    const cloudSaves = localStorage.getItem('voxelcraft-cloud-saves');
+    if (cloudSaves && cloudConnected) {
+      const parsedCloudSaves = JSON.parse(cloudSaves).map((save: any) => ({
+        ...save,
+        timestamp: new Date(save.timestamp),
+        saveType: 'cloud'
+      }));
+      allSaves = [...allSaves, ...parsedCloudSaves];
+    }
+
+    // Sort by timestamp
+    allSaves.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+    setSaves(allSaves);
+  };
+
   const performAutoSave = () => {
     if (!currentWorldData) return;
 
@@ -73,18 +98,11 @@ export const SaveManager: React.FC<SaveManagerProps> = ({
       timestamp: new Date(),
       size: calculateSize(currentWorldData),
       isAutoSave: true,
-      worldData: currentWorldData
+      worldData: currentWorldData,
+      saveType: 'cloud' // Auto-saves go to cloud
     };
 
-    const updatedSaves = [autoSave, ...saves.filter(s => !s.isAutoSave || s.id !== autoSave.id)];
-    
-    // Keep only the 5 most recent auto-saves
-    const autoSaves = updatedSaves.filter(s => s.isAutoSave).slice(0, 5);
-    const manualSaves = updatedSaves.filter(s => !s.isAutoSave);
-    
-    const finalSaves = [...autoSaves, ...manualSaves];
-    setSaves(finalSaves);
-    savesToStorage(finalSaves);
+    saveToStorage(autoSave);
   };
 
   const calculateSize = (data: any): string => {
@@ -94,8 +112,22 @@ export const SaveManager: React.FC<SaveManagerProps> = ({
     return `${(sizeInBytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const savesToStorage = (savesToStore: SaveFile[]) => {
-    localStorage.setItem('voxelcraft-saves', JSON.stringify(savesToStore));
+  const saveToStorage = (newSave: SaveFile) => {
+    const storageKey = newSave.saveType === 'cloud' ? 'voxelcraft-cloud-saves' : 'voxelcraft-saves';
+    const existingSaves = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    
+    let updatedSaves;
+    if (newSave.isAutoSave) {
+      // Keep only the 5 most recent auto-saves
+      const autoSaves = existingSaves.filter((s: SaveFile) => s.isAutoSave).slice(0, 4);
+      const manualSaves = existingSaves.filter((s: SaveFile) => !s.isAutoSave);
+      updatedSaves = [newSave, ...autoSaves, ...manualSaves];
+    } else {
+      updatedSaves = [newSave, ...existingSaves];
+    }
+    
+    localStorage.setItem(storageKey, JSON.stringify(updatedSaves));
+    loadSaves(); // Refresh the list
   };
 
   const saveAutoSaveSettings = () => {
@@ -114,19 +146,20 @@ export const SaveManager: React.FC<SaveManagerProps> = ({
       timestamp: new Date(),
       size: calculateSize(currentWorldData),
       isAutoSave: false,
-      worldData: currentWorldData
+      worldData: currentWorldData,
+      saveType: saveType
     };
 
-    const updatedSaves = [newSave, ...saves];
-    setSaves(updatedSaves);
-    savesToStorage(updatedSaves);
+    saveToStorage(newSave);
     setSaveName('');
   };
 
-  const deleteSave = (saveId: string) => {
-    const updatedSaves = saves.filter(s => s.id !== saveId);
-    setSaves(updatedSaves);
-    savesToStorage(updatedSaves);
+  const deleteSave = (save: SaveFile) => {
+    const storageKey = save.saveType === 'cloud' ? 'voxelcraft-cloud-saves' : 'voxelcraft-saves';
+    const existingSaves = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    const updatedSaves = existingSaves.filter((s: SaveFile) => s.id !== save.id);
+    localStorage.setItem(storageKey, JSON.stringify(updatedSaves));
+    loadSaves();
   };
 
   const loadSave = (save: SaveFile) => {
@@ -161,12 +194,11 @@ export const SaveManager: React.FC<SaveManagerProps> = ({
           timestamp: new Date(),
           size: calculateSize(worldData),
           isAutoSave: false,
-          worldData
+          worldData,
+          saveType: 'local' // Imported saves go to local
         };
 
-        const updatedSaves = [importedSave, ...saves];
-        setSaves(updatedSaves);
-        savesToStorage(updatedSaves);
+        saveToStorage(importedSave);
       } catch (error) {
         alert('Invalid save file format');
       }
@@ -174,19 +206,34 @@ export const SaveManager: React.FC<SaveManagerProps> = ({
     reader.readAsText(file);
   };
 
+  const getSaveIcon = (save: SaveFile) => {
+    if (save.saveType === 'cloud') {
+      return <Cloud className="w-4 h-4 text-blue-400" />;
+    }
+    return <Monitor className="w-4 h-4 text-green-400" />;
+  };
+
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 rounded-xl border-2 border-green-600 max-w-2xl w-full max-h-[80vh] overflow-hidden">
+      <div className="bg-gray-900 rounded-xl border-2 border-green-600 max-w-3xl w-full max-h-[80vh] overflow-hidden">
         <div className="flex justify-between items-center p-4 border-b border-gray-700">
           <h2 className="text-xl font-bold text-green-400">Save Manager</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-white transition-colors"
-          >
-            ×
-          </button>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full ${cloudConnected ? 'bg-green-400' : 'bg-red-400'}`}></div>
+              <span className="text-sm text-gray-300">
+                {cloudConnected ? 'Cloud Connected' : 'Cloud Offline'}
+              </span>
+            </div>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-white transition-colors"
+            >
+              ×
+            </button>
+          </div>
         </div>
 
         <div className="p-4 space-y-6 max-h-96 overflow-y-auto">
@@ -204,6 +251,14 @@ export const SaveManager: React.FC<SaveManagerProps> = ({
                 placeholder="Enter save name..."
                 className="flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-green-400"
               />
+              <select
+                value={saveType}
+                onChange={(e) => setSaveType(e.target.value as 'local' | 'cloud')}
+                className="px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white"
+              >
+                <option value="cloud">Cloud Save</option>
+                <option value="local">Local Save</option>
+              </select>
               <button
                 onClick={manualSave}
                 disabled={!saveName.trim() || !currentWorldData}
@@ -218,7 +273,7 @@ export const SaveManager: React.FC<SaveManagerProps> = ({
           <div className="space-y-3 p-4 bg-gray-800 rounded-lg">
             <h3 className="text-white font-medium flex items-center gap-2">
               <Clock className="w-5 h-5" />
-              Auto-Save Settings
+              Auto-Save Settings (Cloud)
             </h3>
             <div className="flex items-center justify-between">
               <label className="text-gray-300">Enable Auto-Save</label>
@@ -261,7 +316,7 @@ export const SaveManager: React.FC<SaveManagerProps> = ({
           <div className="flex gap-2">
             <label className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white text-center rounded-lg cursor-pointer transition-colors">
               <Upload className="w-4 h-4 inline mr-2" />
-              Import Save
+              Import Save (Local)
               <input
                 type="file"
                 accept=".voxelcraft,.json"
@@ -289,12 +344,16 @@ export const SaveManager: React.FC<SaveManagerProps> = ({
                   <div key={save.id} className="flex items-center justify-between p-3 bg-gray-800 rounded-lg">
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
+                        {getSaveIcon(save)}
                         <h4 className="text-white font-medium">{save.name}</h4>
                         {save.isAutoSave && (
                           <span className="px-2 py-1 bg-blue-600 text-white text-xs rounded">
                             AUTO
                           </span>
                         )}
+                        <span className="px-2 py-1 bg-gray-600 text-white text-xs rounded uppercase">
+                          {save.saveType}
+                        </span>
                       </div>
                       <p className="text-sm text-gray-400">
                         {save.timestamp.toLocaleString()} • {save.size}
@@ -311,11 +370,12 @@ export const SaveManager: React.FC<SaveManagerProps> = ({
                       <button
                         onClick={() => exportSave(save)}
                         className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded transition-colors"
+                        title="Export to Desktop"
                       >
                         <Download className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => deleteSave(save.id)}
+                        onClick={() => deleteSave(save)}
                         className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-sm rounded transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />
