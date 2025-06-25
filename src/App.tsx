@@ -55,29 +55,53 @@ function App() {
 
   // Initialize game engine when entering game
   useEffect(() => {
+    console.log('Game state changed to:', gameState);
+    
     if (gameState === 'playing' && canvasRef.current && !gameEngineRef.current) {
-      gameEngineRef.current = new GameEngine(canvasRef.current);
+      console.log('Initializing game engine...');
       
-      // Set up callbacks
-      gameEngineRef.current.setInventoryUpdateCallback((hotbarSlots) => {
-        setHotbar(hotbarSlots);
-        setAllInventorySlots(gameEngineRef.current!.getInventory().getAllSlots());
-      });
-      
-      gameEngineRef.current.setHealthUpdateCallback((h, maxH) => {
-        setHealth(h);
-        setMaxHealth(maxH);
-      });
-      
-      gameEngineRef.current.setHungerUpdateCallback((h, maxH) => {
-        setHunger(h);
-        setMaxHunger(maxH);
-      });
+      try {
+        gameEngineRef.current = new GameEngine(canvasRef.current);
+        
+        // Set up callbacks
+        gameEngineRef.current.setInventoryUpdateCallback((hotbarSlots) => {
+          setHotbar(hotbarSlots);
+          setAllInventorySlots(gameEngineRef.current!.getInventory().getAllSlots());
+        });
+        
+        gameEngineRef.current.setHealthUpdateCallback((h, maxH) => {
+          setHealth(h);
+          setMaxHealth(maxH);
+        });
+        
+        gameEngineRef.current.setHungerUpdateCallback((h, maxH) => {
+          setHunger(h);
+          setMaxHunger(maxH);
+        });
 
-      gameEngineRef.current.setRespawnCallback(() => {
-        setShowRespawnMessage(true);
-        setTimeout(() => setShowRespawnMessage(false), 3000);
-      });
+        gameEngineRef.current.setRespawnCallback(() => {
+          setShowRespawnMessage(true);
+          setTimeout(() => setShowRespawnMessage(false), 3000);
+        });
+
+        // Check if there's a save to load from session storage
+        const saveToLoad = sessionStorage.getItem('voxelcraft-load-save');
+        if (saveToLoad) {
+          try {
+            const saveData = JSON.parse(saveToLoad);
+            gameEngineRef.current.loadWorldData(saveData.worldData);
+            sessionStorage.removeItem('voxelcraft-load-save');
+            console.log('Loaded save data successfully');
+          } catch (error) {
+            console.error('Error loading save:', error);
+          }
+        }
+        
+        console.log('Game engine initialized successfully');
+      } catch (error) {
+        console.error('Error initializing game engine:', error);
+        // Don't redirect back to login on error, just log it
+      }
     }
   }, [gameState]);
 
@@ -176,10 +200,33 @@ function App() {
   }, [gameState, isGameActive, isInventoryOpen, isChatOpen, isMultiplayer, isSettingsOpen, isSaveManagerOpen, isFriendsOpen]);
 
   const handleLogin = (user: string, serverType: 'singleplayer' | 'multiplayer', roomInfo?: RoomData) => {
-    setUsername(user);
+    console.log('Login attempt:', { user, serverType, roomInfo });
+    
+    // Validate input
+    if (!user || user.trim().length === 0) {
+      console.error('Invalid username');
+      alert('Please enter a valid username');
+      return;
+    }
+
+    if (serverType === 'multiplayer' && roomInfo && (!roomInfo.id.trim() || !roomInfo.password.trim())) {
+      console.error('Invalid room data for multiplayer');
+      alert('Please enter valid room ID and password for multiplayer');
+      return;
+    }
+
+    console.log('Setting login state...');
+    
+    // Set all the state at once to prevent race conditions
+    setUsername(user.trim());
     setIsMultiplayer(serverType === 'multiplayer');
     setRoomData(roomInfo || null);
-    setGameState('playing');
+    
+    // Use a timeout to ensure all state updates are processed
+    setTimeout(() => {
+      console.log('Transitioning to game state...');
+      setGameState('playing');
+    }, 50);
   };
 
   const handleBlockSelect = (blockType: BlockType) => {
@@ -240,6 +287,35 @@ function App() {
     console.log(`Inviting friend ${friendId} to room ${roomData?.id}`);
   };
 
+  const handleBackToLogin = () => {
+    console.log('Returning to login screen...');
+    
+    // Clean up game engine
+    if (gameEngineRef.current) {
+      // Save current state before going back
+      try {
+        handleQuickSave();
+      } catch (error) {
+        console.error('Error saving before logout:', error);
+      }
+    }
+    
+    // Reset all game state
+    setIsGameActive(false);
+    setIsInventoryOpen(false);
+    setIsSettingsOpen(false);
+    setIsSaveManagerOpen(false);
+    setIsChatOpen(false);
+    setIsFriendsOpen(false);
+    
+    // Clear game engine reference
+    gameEngineRef.current = null;
+    
+    // Return to login
+    setGameState('login');
+  };
+
+  // Render login screen
   if (gameState === 'login') {
     return (
       <>
@@ -256,6 +332,7 @@ function App() {
     );
   }
 
+  // Render game screen
   return (
     <div className="w-full h-screen overflow-hidden bg-black relative">
       <canvas 
@@ -263,6 +340,14 @@ function App() {
         className="w-full h-full cursor-crosshair"
         style={{ display: 'block' }}
       />
+      
+      {/* Back to Login Button */}
+      <button
+        onClick={handleBackToLogin}
+        className="fixed top-4 left-4 z-50 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+      >
+        Back to Login
+      </button>
       
       {/* Respawn Message */}
       {showRespawnMessage && (
