@@ -38,6 +38,7 @@ function App() {
   const [maxHealth, setMaxHealth] = useState(20);
   const [hunger, setHunger] = useState(20);
   const [maxHunger, setMaxHunger] = useState(20);
+  const [isThirdPerson, setIsThirdPerson] = useState(false);
   
   // UI states
   const [isInventoryOpen, setIsInventoryOpen] = useState(false);
@@ -45,6 +46,7 @@ function App() {
   const [isFriendsOpen, setIsFriendsOpen] = useState(false);
   const [isSaveManagerOpen, setIsSaveManagerOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [showRespawnMessage, setShowRespawnMessage] = useState(false);
   
   // Settings
   const [sensitivity, setSensitivity] = useState(1.0);
@@ -71,8 +73,26 @@ function App() {
         setHunger(h);
         setMaxHunger(maxH);
       });
+
+      gameEngineRef.current.setRespawnCallback(() => {
+        setShowRespawnMessage(true);
+        setTimeout(() => setShowRespawnMessage(false), 3000);
+      });
     }
   }, [gameState]);
+
+  // Control game controls based on UI state
+  useEffect(() => {
+    if (gameEngineRef.current) {
+      const shouldDisableControls = gameState !== 'playing' || 
+                                   isInventoryOpen || 
+                                   isSettingsOpen || 
+                                   isSaveManagerOpen || 
+                                   isChatOpen ||
+                                   isFriendsOpen;
+      gameEngineRef.current.setControlsEnabled(!shouldDisableControls && isGameActive);
+    }
+  }, [gameState, isGameActive, isInventoryOpen, isSettingsOpen, isSaveManagerOpen, isChatOpen, isFriendsOpen]);
 
   useEffect(() => {
     if (gameState !== 'playing') return;
@@ -82,49 +102,78 @@ function App() {
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      // Don't handle game keys if any UI is open or game is not active
+      if (!isGameActive || isInventoryOpen || isSettingsOpen || isSaveManagerOpen || isChatOpen || isFriendsOpen) {
+        return;
+      }
+
       if (event.key === 'e' || event.key === 'E') {
-        if (isGameActive && !isChatOpen) {
-          setIsInventoryOpen(!isInventoryOpen);
-        }
+        setIsInventoryOpen(!isInventoryOpen);
       } else if (event.key === 'Escape') {
         if (isInventoryOpen) {
           setIsInventoryOpen(false);
         } else if (isChatOpen) {
           setIsChatOpen(false);
-        } else if (isGameActive) {
+        } else if (isSettingsOpen) {
+          setIsSettingsOpen(false);
+        } else if (isSaveManagerOpen) {
+          setIsSaveManagerOpen(false);
+        } else if (isFriendsOpen) {
+          setIsFriendsOpen(false);
+        } else {
           setIsSettingsOpen(!isSettingsOpen);
         }
       } else if (event.key === 't' || event.key === 'T') {
-        if (isGameActive && isMultiplayer && !isInventoryOpen) {
+        if (isMultiplayer) {
           setIsChatOpen(true);
         }
       } else if (event.key === 'm' || event.key === 'M') {
-        if (isGameActive) {
-          // TODO: Show map
+        // TODO: Show map
+      } else if (event.key === 'f' || event.key === 'F') {
+        // Toggle perspective
+        if (gameEngineRef.current) {
+          setIsThirdPerson(gameEngineRef.current.isInThirdPerson());
         }
       } else if (event.ctrlKey && event.key === 's') {
         event.preventDefault();
-        if (isGameActive) {
-          handleQuickSave();
-        }
+        handleQuickSave();
       }
       
       // Hotbar selection
       const keyIndex = parseInt(event.key) - 1;
-      if (keyIndex >= 0 && keyIndex < 9 && gameEngineRef.current && isGameActive) {
+      if (keyIndex >= 0 && keyIndex < 9 && gameEngineRef.current) {
         setSelectedHotbarSlot(keyIndex);
         gameEngineRef.current.setSelectedHotbarSlot(keyIndex);
       }
     };
 
+    // Handle ESC key for closing UI panels
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        if (isInventoryOpen) {
+          setIsInventoryOpen(false);
+        } else if (isChatOpen) {
+          setIsChatOpen(false);
+        } else if (isSettingsOpen) {
+          setIsSettingsOpen(false);
+        } else if (isSaveManagerOpen) {
+          setIsSaveManagerOpen(false);
+        } else if (isFriendsOpen) {
+          setIsFriendsOpen(false);
+        }
+      }
+    };
+
     document.addEventListener('pointerlockchange', handlePointerLockChange);
     document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keydown', handleEscapeKey);
     
     return () => {
       document.removeEventListener('pointerlockchange', handlePointerLockChange);
       document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('keydown', handleEscapeKey);
     };
-  }, [gameState, isGameActive, isInventoryOpen, isChatOpen, isMultiplayer]);
+  }, [gameState, isGameActive, isInventoryOpen, isChatOpen, isMultiplayer, isSettingsOpen, isSaveManagerOpen, isFriendsOpen]);
 
   const handleLogin = (user: string, serverType: 'singleplayer' | 'multiplayer', roomInfo?: RoomData) => {
     setUsername(user);
@@ -166,17 +215,18 @@ function App() {
       id: `quicksave-${Date.now()}`,
       name: `Quick Save ${new Date().toLocaleString()}`,
       timestamp: new Date(),
+      isAutoSave: false,
       worldData,
-      isAutoSave: false
+      saveType: 'cloud' // Quick saves go to cloud
     };
 
-    // Save to localStorage
-    const existingSaves = JSON.parse(localStorage.getItem('voxelcraft-saves') || '[]');
+    // Save to cloud storage (simulated with localStorage)
+    const existingSaves = JSON.parse(localStorage.getItem('voxelcraft-cloud-saves') || '[]');
     const updatedSaves = [saveData, ...existingSaves];
-    localStorage.setItem('voxelcraft-saves', JSON.stringify(updatedSaves));
+    localStorage.setItem('voxelcraft-cloud-saves', JSON.stringify(updatedSaves));
     
-    // Show notification (you could add a toast notification system)
-    console.log('Game saved successfully!');
+    // Show notification
+    console.log('Game saved to cloud successfully!');
   };
 
   const handleLoadSave = (saveData: any) => {
@@ -214,6 +264,15 @@ function App() {
         style={{ display: 'block' }}
       />
       
+      {/* Respawn Message */}
+      {showRespawnMessage && (
+        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50">
+          <div className="bg-red-600 bg-opacity-90 text-white px-6 py-3 rounded-lg text-xl font-bold">
+            You respawned! (-5 Health)
+          </div>
+        </div>
+      )}
+      
       <GameUI 
         selectedBlock={selectedBlock}
         onBlockSelect={handleBlockSelect}
@@ -227,6 +286,7 @@ function App() {
         maxHealth={maxHealth}
         hunger={hunger}
         maxHunger={maxHunger}
+        isThirdPerson={isThirdPerson}
       />
 
       <GameHUD
