@@ -27,11 +27,14 @@ export class GameEngine {
   private maxHealth = 20;
   private hunger = 20;
   private maxHunger = 20;
+  private lastChunkUpdate = 0;
+  private respawnInProgress = false;
 
   // UI callbacks
   private onInventoryUpdate?: (hotbar: InventorySlot[]) => void;
   private onHealthUpdate?: (health: number, maxHealth: number) => void;
   private onHungerUpdate?: (hunger: number, maxHunger: number) => void;
+  private onRespawn?: () => void;
 
   constructor(canvas: HTMLCanvasElement) {
     this.clock = new THREE.Clock();
@@ -46,10 +49,10 @@ export class GameEngine {
     // Scene setup
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x87CEEB);
-    this.scene.fog = new THREE.Fog(0x87CEEB, 50, 200);
+    this.scene.fog = new THREE.Fog(0x87CEEB, 100, 400); // Increased fog distance for bigger world
     
     // Camera setup
-    this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
     
     // Renderer setup
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -64,6 +67,12 @@ export class GameEngine {
     this.world = new World(this.scene);
     this.player = new Player(this.camera);
     this.npcManager = new NPCManager(this.scene);
+    
+    // Add player mesh to scene
+    const playerMesh = this.player.getPlayerMesh();
+    if (playerMesh) {
+      this.scene.add(playerMesh);
+    }
     
     // Spawn some NPCs
     this.spawnInitialNPCs();
@@ -100,11 +109,11 @@ export class GameEngine {
   private spawnInitialNPCs() {
     // Spawn some NPCs around the player
     const playerPos = this.camera.position;
-    this.npcManager.spawnRandomNPCs(playerPos, 50, 8);
+    this.npcManager.spawnRandomNPCs(playerPos, 100, 15); // More NPCs in bigger world
     
     // Spawn a few specific NPCs
-    this.npcManager.spawnNPC(NPCType.VILLAGER, new THREE.Vector3(10, 35, 10));
-    this.npcManager.spawnNPC(NPCType.ZOMBIE, new THREE.Vector3(-15, 35, -15));
+    this.npcManager.spawnNPC(NPCType.VILLAGER, new THREE.Vector3(20, 70, 20));
+    this.npcManager.spawnNPC(NPCType.ZOMBIE, new THREE.Vector3(-30, 70, -30));
   }
 
   private setupLighting() {
@@ -114,16 +123,16 @@ export class GameEngine {
     
     // Directional light (sun)
     const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    directionalLight.position.set(50, 100, 50);
+    directionalLight.position.set(100, 200, 100);
     directionalLight.castShadow = true;
-    directionalLight.shadow.mapSize.width = 2048;
-    directionalLight.shadow.mapSize.height = 2048;
+    directionalLight.shadow.mapSize.width = 4096;
+    directionalLight.shadow.mapSize.height = 4096;
     directionalLight.shadow.camera.near = 0.5;
-    directionalLight.shadow.camera.far = 500;
-    directionalLight.shadow.camera.left = -100;
-    directionalLight.shadow.camera.right = 100;
-    directionalLight.shadow.camera.top = 100;
-    directionalLight.shadow.camera.bottom = -100;
+    directionalLight.shadow.camera.far = 1000;
+    directionalLight.shadow.camera.left = -200;
+    directionalLight.shadow.camera.right = 200;
+    directionalLight.shadow.camera.top = 200;
+    directionalLight.shadow.camera.bottom = -200;
     this.scene.add(directionalLight);
   }
 
@@ -155,10 +164,7 @@ export class GameEngine {
     document.addEventListener('mousemove', (event) => {
       if (!this.isPointerLocked) return;
       
-      const adjustedSensitivity = this.sensitivity * 0.002;
-      this.camera.rotation.y -= event.movementX * adjustedSensitivity;
-      this.camera.rotation.x -= event.movementY * adjustedSensitivity;
-      this.camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.camera.rotation.x));
+      this.player.handleMouseMovement(event.movementX, event.movementY, this.sensitivity);
     });
 
     // Block placement/destruction
@@ -221,10 +227,50 @@ export class GameEngine {
     }
   }
 
+  private checkPlayerBounds() {
+    const playerPosition = this.camera.position;
+    
+    // Check if player fell out of the world or went too far
+    if (this.world.isOutOfBounds(playerPosition) || playerPosition.y < -50) {
+      this.respawnPlayer();
+    }
+  }
+
+  private respawnPlayer() {
+    if (this.respawnInProgress) return;
+    
+    this.respawnInProgress = true;
+    
+    // Find a safe spawn point
+    const spawnPoint = this.world.findSafeSpawnPoint();
+    
+    // Teleport player to spawn
+    this.camera.position.copy(spawnPoint);
+    
+    // Reset velocity
+    this.player.resetVelocity();
+    
+    // Reduce health as penalty
+    this.health = Math.max(1, this.health - 5);
+    if (this.onHealthUpdate) {
+      this.onHealthUpdate(this.health, this.maxHealth);
+    }
+    
+    // Show respawn message
+    if (this.onRespawn) {
+      this.onRespawn();
+    }
+    
+    setTimeout(() => {
+      this.respawnInProgress = false;
+    }, 1000);
+  }
+
   private animate() {
     requestAnimationFrame(() => this.animate());
     
     const deltaTime = this.clock.getDelta();
+    const currentTime = this.clock.getElapsedTime();
     
     // Update player
     this.player.update(deltaTime, (x, y, z) => {
@@ -233,6 +279,15 @@ export class GameEngine {
       const blockZ = Math.floor(z);
       return this.world.getBlock(blockX, blockY, blockZ) !== BlockType.AIR;
     });
+    
+    // Check player bounds
+    this.checkPlayerBounds();
+    
+    // Update chunks based on player position (every 2 seconds)
+    if (currentTime - this.lastChunkUpdate > 2) {
+      this.world.updateChunks(this.camera.position);
+      this.lastChunkUpdate = currentTime;
+    }
     
     // Update NPCs
     this.npcManager.update(deltaTime, this.camera.position);
@@ -250,6 +305,15 @@ export class GameEngine {
     }
     
     this.renderer.render(this.scene, this.camera);
+  }
+
+  // Control management
+  setControlsEnabled(enabled: boolean) {
+    this.player.setControlsEnabled(enabled);
+  }
+
+  isInThirdPerson(): boolean {
+    return this.player.isInThirdPerson();
   }
 
   // Public methods for UI interaction
@@ -308,7 +372,8 @@ export class GameEngine {
       inventory: this.inventory.getAllSlots(),
       health: this.health,
       hunger: this.hunger,
-      worldSeed: Math.random(), // Placeholder for world generation seed
+      isThirdPerson: this.player.isInThirdPerson(),
+      worldData: this.world.getWorldData(),
       timestamp: Date.now()
     };
   }
@@ -342,6 +407,12 @@ export class GameEngine {
         this.onHungerUpdate(this.hunger, this.maxHunger);
       }
     }
+    if (data.isThirdPerson !== undefined && data.isThirdPerson !== this.player.isInThirdPerson()) {
+      this.player.togglePerspective();
+    }
+    if (data.worldData) {
+      this.world.loadWorldData(data.worldData);
+    }
   }
 
   // UI callback setters
@@ -356,5 +427,9 @@ export class GameEngine {
 
   setHungerUpdateCallback(callback: (hunger: number, maxHunger: number) => void) {
     this.onHungerUpdate = callback;
+  }
+
+  setRespawnCallback(callback: () => void) {
+    this.onRespawn = callback;
   }
 }
