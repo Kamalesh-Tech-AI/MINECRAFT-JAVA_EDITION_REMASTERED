@@ -1,6 +1,6 @@
 import React from 'react';
 import { BlockType, InventorySlot } from '../types/Block';
-import { Pickaxe, Hammer, TreePine, Mountain, Grab as Grass, Package, Settings } from 'lucide-react';
+import { Pickaxe, Hammer, TreePine, Mountain, Grab as Grass, Package, Settings, Eye } from 'lucide-react';
 
 interface GameUIProps {
   selectedBlock: BlockType;
@@ -15,6 +15,7 @@ interface GameUIProps {
   maxHealth: number;
   hunger: number;
   maxHunger: number;
+  isThirdPerson: boolean;
 }
 
 const blockData = [
@@ -37,7 +38,8 @@ export const GameUI: React.FC<GameUIProps> = ({
   health,
   maxHealth,
   hunger,
-  maxHunger
+  maxHunger,
+  isThirdPerson
 }) => {
   const getItemIcon = (slot: InventorySlot, index: number) => {
     if (slot.item) {
@@ -54,7 +56,7 @@ export const GameUI: React.FC<GameUIProps> = ({
   return (
     <div className="fixed inset-0 pointer-events-none">
       {/* Crosshair */}
-      {isGameActive && (
+      {isGameActive && !isThirdPerson && (
         <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
           <div className="w-6 h-6 flex items-center justify-center">
             <div className="w-0.5 h-4 bg-white opacity-75"></div>
@@ -88,6 +90,17 @@ export const GameUI: React.FC<GameUIProps> = ({
               ></div>
             </div>
             <span className="text-white text-sm">{hunger}/{maxHunger}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Perspective Indicator */}
+      {isGameActive && (
+        <div className="absolute top-4 right-4 bg-black bg-opacity-60 px-3 py-2 rounded-lg backdrop-blur-sm">
+          <div className="flex items-center gap-2 text-white text-sm">
+            <Eye className="w-4 h-4" />
+            <span>{isThirdPerson ? 'Third Person' : 'First Person'}</span>
+            <span className="text-gray-300">(F)</span>
           </div>
         </div>
       )}
@@ -154,12 +167,14 @@ export const GameUI: React.FC<GameUIProps> = ({
                   <p><strong className="text-blue-400">Mouse:</strong> Look around</p>
                   <p><strong className="text-blue-400">Space:</strong> Jump</p>
                   <p><strong className="text-blue-400">Left Click:</strong> Break blocks</p>
+                  <p><strong className="text-blue-400">F:</strong> Toggle perspective</p>
                 </div>
                 <div>
                   <p><strong className="text-green-400">Right Click:</strong> Place blocks</p>
                   <p><strong className="text-green-400">E:</strong> Open inventory</p>
                   <p><strong className="text-green-400">ESC:</strong> Settings</p>
                   <p><strong className="text-green-400">1-9:</strong> Select hotbar</p>
+                  <p><strong className="text-green-400">T:</strong> Chat (Multiplayer)</p>
                 </div>
               </div>
               <div className="mt-6 p-4 bg-gray-800 rounded-lg">
@@ -178,7 +193,7 @@ export const GameUI: React.FC<GameUIProps> = ({
 
       {/* Selected Item Info */}
       {isGameActive && hotbar[selectedHotbarSlot]?.item && (
-        <div className="absolute top-4 right-4 bg-black bg-opacity-60 text-white p-3 rounded-lg backdrop-blur-sm">
+        <div className="absolute top-20 right-4 bg-black bg-opacity-60 text-white p-3 rounded-lg backdrop-blur-sm">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 flex items-center justify-center">
               {getItemIcon(hotbar[selectedHotbarSlot], selectedHotbarSlot)}
