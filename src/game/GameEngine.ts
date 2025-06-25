@@ -300,6 +300,50 @@ export class GameEngine {
     return this.maxHunger;
   }
 
+  // Save/Load functionality
+  getWorldData(): any {
+    return {
+      playerPosition: this.camera.position.toArray(),
+      playerRotation: [this.camera.rotation.x, this.camera.rotation.y, this.camera.rotation.z],
+      inventory: this.inventory.getAllSlots(),
+      health: this.health,
+      hunger: this.hunger,
+      worldSeed: Math.random(), // Placeholder for world generation seed
+      timestamp: Date.now()
+    };
+  }
+
+  loadWorldData(data: any) {
+    if (data.playerPosition) {
+      this.camera.position.fromArray(data.playerPosition);
+    }
+    if (data.playerRotation) {
+      this.camera.rotation.set(data.playerRotation[0], data.playerRotation[1], data.playerRotation[2]);
+    }
+    if (data.inventory) {
+      // Restore inventory
+      this.inventory.clear();
+      data.inventory.forEach((slot: any, index: number) => {
+        if (slot.item) {
+          this.inventory.addItem(slot.item, slot.quantity);
+        }
+      });
+      this.updateInventoryUI();
+    }
+    if (data.health !== undefined) {
+      this.health = data.health;
+      if (this.onHealthUpdate) {
+        this.onHealthUpdate(this.health, this.maxHealth);
+      }
+    }
+    if (data.hunger !== undefined) {
+      this.hunger = data.hunger;
+      if (this.onHungerUpdate) {
+        this.onHungerUpdate(this.hunger, this.maxHunger);
+      }
+    }
+  }
+
   // UI callback setters
   setInventoryUpdateCallback(callback: (hotbar: InventorySlot[]) => void) {
     this.onInventoryUpdate = callback;
