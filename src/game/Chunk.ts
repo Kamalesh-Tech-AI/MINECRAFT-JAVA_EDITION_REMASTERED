@@ -38,29 +38,80 @@ export class Chunk {
         const worldX = this.chunkX * this.size + x;
         const worldZ = this.chunkZ * this.size + z;
         
-        // Simple height map based on noise
-        const height = Math.floor(20 + 10 * Math.sin(worldX * 0.05) * Math.cos(worldZ * 0.05));
+        // Enhanced terrain generation with multiple octaves
+        const baseHeight = this.getTerrainHeight(worldX, worldZ);
+        const mountainHeight = this.getMountainHeight(worldX, worldZ);
+        const finalHeight = Math.floor(baseHeight + mountainHeight);
+        
+        // Generate different biomes
+        const biome = this.getBiome(worldX, worldZ);
         
         for (let y = 0; y < this.height; y++) {
-          if (y < height - 5) {
+          if (y < finalHeight - 8) {
             this.blocks[x][y][z] = BlockType.STONE;
-          } else if (y < height - 1) {
-            this.blocks[x][y][z] = BlockType.DIRT;
-          } else if (y === height - 1) {
-            this.blocks[x][y][z] = BlockType.GRASS;
+          } else if (y < finalHeight - 1) {
+            this.blocks[x][y][z] = biome === 'desert' ? BlockType.SAND : BlockType.DIRT;
+          } else if (y === finalHeight - 1) {
+            if (biome === 'desert') {
+              this.blocks[x][y][z] = BlockType.SAND;
+            } else {
+              this.blocks[x][y][z] = BlockType.GRASS;
+            }
+          }
+          
+          // Add ores
+          if (y < finalHeight - 5 && Math.random() < 0.01) {
+            if (y < 20 && Math.random() < 0.3) {
+              this.blocks[x][y][z] = BlockType.DIAMOND_ORE;
+            } else if (y < 40 && Math.random() < 0.5) {
+              this.blocks[x][y][z] = BlockType.IRON_ORE;
+            } else if (y < 60) {
+              this.blocks[x][y][z] = BlockType.COAL_ORE;
+            }
           }
         }
 
-        // Add some trees
-        if (Math.random() < 0.05 && height < 35) {
-          this.generateTree(x, height, z);
+        // Generate structures
+        if (biome !== 'desert' && Math.random() < 0.02 && finalHeight < 80) {
+          this.generateTree(x, finalHeight, z);
+        }
+        
+        // Generate villages occasionally
+        if (Math.random() < 0.001 && finalHeight > 30 && finalHeight < 70) {
+          this.generateVillageStructure(x, finalHeight, z);
         }
       }
     }
   }
 
+  private getTerrainHeight(x: number, z: number): number {
+    // Multiple octaves of noise for more realistic terrain
+    const scale1 = 0.01;
+    const scale2 = 0.05;
+    const scale3 = 0.1;
+    
+    const noise1 = Math.sin(x * scale1) * Math.cos(z * scale1) * 20;
+    const noise2 = Math.sin(x * scale2) * Math.cos(z * scale2) * 10;
+    const noise3 = Math.sin(x * scale3) * Math.cos(z * scale3) * 5;
+    
+    return 40 + noise1 + noise2 + noise3;
+  }
+
+  private getMountainHeight(x: number, z: number): number {
+    const mountainScale = 0.003;
+    const mountainNoise = Math.sin(x * mountainScale) * Math.cos(z * mountainScale);
+    return mountainNoise > 0.3 ? mountainNoise * 40 : 0;
+  }
+
+  private getBiome(x: number, z: number): string {
+    const biomeNoise = Math.sin(x * 0.001) * Math.cos(z * 0.001);
+    if (biomeNoise > 0.3) return 'desert';
+    if (biomeNoise < -0.3) return 'forest';
+    return 'plains';
+  }
+
   private generateTree(x: number, baseY: number, z: number) {
-    const treeHeight = 4 + Math.floor(Math.random() * 3);
+    const treeHeight = 5 + Math.floor(Math.random() * 4);
     
     // Trunk
     for (let y = 0; y < treeHeight; y++) {
@@ -69,20 +120,52 @@ export class Chunk {
       }
     }
     
-    // Leaves
+    // Leaves - larger canopy
     const leafY = baseY + treeHeight - 1;
-    for (let dx = -2; dx <= 2; dx++) {
-      for (let dy = 0; dy <= 2; dy++) {
-        for (let dz = -2; dz <= 2; dz++) {
+    for (let dx = -3; dx <= 3; dx++) {
+      for (let dy = 0; dy <= 3; dy++) {
+        for (let dz = -3; dz <= 3; dz++) {
           const leafX = x + dx;
           const leafZ = z + dz;
           const leafYPos = leafY + dy;
           
+          const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
           if (leafX >= 0 && leafX < this.size && 
               leafZ >= 0 && leafZ < this.size && 
               leafYPos < this.height &&
-              Math.random() < 0.7) {
+              distance < 3.5 && Math.random() < 0.8) {
             this.blocks[leafX][leafYPos][leafZ] = BlockType.LEAVES;
+          }
+        }
+      }
+    }
+  }
+
+  private generateVillageStructure(x: number, baseY: number, z: number) {
+    // Simple house structure
+    const houseSize = 5;
+    for (let dx = 0; dx < houseSize; dx++) {
+      for (let dz = 0; dz < houseSize; dz++) {
+        for (let dy = 0; dy < 4; dy++) {
+          const houseX = x + dx;
+          const houseZ = z + dz;
+          const houseY = baseY + dy;
+          
+          if (houseX >= 0 && houseX < this.size && 
+              houseZ >= 0 && houseZ < this.size && 
+              houseY < this.height) {
+            
+            // Walls
+            if (dx === 0 || dx === houseSize - 1 || dz === 0 || dz === houseSize - 1) {
+              if (dy < 3) {
+                this.blocks[houseX][houseY][houseZ] = BlockType.WOOD;
+              }
+            }
+            
+            // Roof
+            if (dy === 3) {
+              this.blocks[houseX][houseY][houseZ] = BlockType.WOOD;
+            }
           }
         }
       }
@@ -181,21 +264,17 @@ export class Chunk {
   }
 
   private getUVCoordinates(blockType: BlockType, faceIndex: number): number[] {
-    // Simple UV mapping - each block type gets different texture coordinates
-    const textureSize = 16; // 16x16 texture atlas
+    // Enhanced texture mapping with more block types
+    const textureSize = 16;
     const tileSize = 1 / textureSize;
     
     let u = 0, v = 0;
     
     switch (blockType) {
       case BlockType.GRASS:
-        if (faceIndex === 2) { // top face
-          u = 0; v = 0;
-        } else if (faceIndex === 3) { // bottom face
-          u = 2; v = 0;
-        } else { // sides
-          u = 1; v = 0;
-        }
+        if (faceIndex === 2) { u = 0; v = 0; } // top
+        else if (faceIndex === 3) { u = 2; v = 0; } // bottom
+        else { u = 1; v = 0; } // sides
         break;
       case BlockType.DIRT:
         u = 2; v = 0;
@@ -204,14 +283,26 @@ export class Chunk {
         u = 3; v = 0;
         break;
       case BlockType.WOOD:
-        if (faceIndex === 2 || faceIndex === 3) { // top/bottom
-          u = 5; v = 0;
-        } else { // sides
-          u = 4; v = 0;
-        }
+        if (faceIndex === 2 || faceIndex === 3) { u = 5; v = 0; }
+        else { u = 4; v = 0; }
         break;
       case BlockType.LEAVES:
         u = 6; v = 0;
+        break;
+      case BlockType.SAND:
+        u = 7; v = 0;
+        break;
+      case BlockType.COAL_ORE:
+        u = 8; v = 0;
+        break;
+      case BlockType.IRON_ORE:
+        u = 9; v = 0;
+        break;
+      case BlockType.GOLD_ORE:
+        u = 10; v = 0;
+        break;
+      case BlockType.DIAMOND_ORE:
+        u = 11; v = 0;
         break;
     }
     
@@ -244,5 +335,24 @@ export class Chunk {
 
   updateMesh(scene: THREE.Scene) {
     this.createMesh(scene);
+  }
+
+  // Get block data for saving
+  getBlockData(): BlockType[][][] {
+    return this.blocks;
+  }
+
+  // Load block data from save
+  loadBlockData(data: BlockType[][][]) {
+    this.blocks = data;
+  }
+
+  // Clean up resources
+  dispose(scene: THREE.Scene) {
+    if (this.mesh) {
+      scene.remove(this.mesh);
+      this.mesh.geometry.dispose();
+      this.mesh = null;
+    }
   }
 }
