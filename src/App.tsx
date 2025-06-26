@@ -8,11 +8,7 @@ import { FriendsManager } from './components/FriendsManager';
 import { SaveManager } from './components/SaveManager';
 import { GameHUD } from './components/GameHUD';
 import { ChatSystem } from './components/ChatSystem';
-import { CraftingUI } from './components/CraftingUI';
 import { BlockType, InventorySlot } from './types/Block';
-import { CraftingRecipe } from './types/Crafting';
-import { CraftingManager } from './game/CraftingManager';
-import { Inventory } from './game/Inventory';
 
 type GameState = 'login' | 'playing';
 
@@ -50,7 +46,6 @@ function App() {
   const [isFriendsOpen, setIsFriendsOpen] = useState(false);
   const [isSaveManagerOpen, setIsSaveManagerOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
-  const [isCraftingOpen, setIsCraftingOpen] = useState(false);
   const [showRespawnMessage, setShowRespawnMessage] = useState(false);
   
   // Settings
@@ -66,9 +61,6 @@ function App() {
       console.log('Initializing game engine...');
       
       try {
-        // Initialize crafting system
-        CraftingManager.initialize();
-        
         gameEngineRef.current = new GameEngine(canvasRef.current);
         
         // Set up callbacks
@@ -108,6 +100,7 @@ function App() {
         console.log('Game engine initialized successfully');
       } catch (error) {
         console.error('Error initializing game engine:', error);
+        // Don't redirect back to login on error, just log it
       }
     }
   }, [gameState]);
@@ -120,11 +113,10 @@ function App() {
                                    isSettingsOpen || 
                                    isSaveManagerOpen || 
                                    isChatOpen ||
-                                   isFriendsOpen ||
-                                   isCraftingOpen;
+                                   isFriendsOpen;
       gameEngineRef.current.setControlsEnabled(!shouldDisableControls && isGameActive);
     }
-  }, [gameState, isGameActive, isInventoryOpen, isSettingsOpen, isSaveManagerOpen, isChatOpen, isFriendsOpen, isCraftingOpen]);
+  }, [gameState, isGameActive, isInventoryOpen, isSettingsOpen, isSaveManagerOpen, isChatOpen, isFriendsOpen]);
 
   useEffect(() => {
     if (gameState !== 'playing') return;
@@ -135,19 +127,15 @@ function App() {
 
     const handleKeyDown = (event: KeyboardEvent) => {
       // Don't handle game keys if any UI is open or game is not active
-      if (!isGameActive || isInventoryOpen || isSettingsOpen || isSaveManagerOpen || isChatOpen || isFriendsOpen || isCraftingOpen) {
+      if (!isGameActive || isInventoryOpen || isSettingsOpen || isSaveManagerOpen || isChatOpen || isFriendsOpen) {
         return;
       }
 
       if (event.key === 'e' || event.key === 'E') {
         setIsInventoryOpen(!isInventoryOpen);
-      } else if (event.key === 'c' || event.key === 'C') {
-        setIsCraftingOpen(!isCraftingOpen);
       } else if (event.key === 'Escape') {
         if (isInventoryOpen) {
           setIsInventoryOpen(false);
-        } else if (isCraftingOpen) {
-          setIsCraftingOpen(false);
         } else if (isChatOpen) {
           setIsChatOpen(false);
         } else if (isSettingsOpen) {
@@ -188,8 +176,6 @@ function App() {
       if (event.key === 'Escape') {
         if (isInventoryOpen) {
           setIsInventoryOpen(false);
-        } else if (isCraftingOpen) {
-          setIsCraftingOpen(false);
         } else if (isChatOpen) {
           setIsChatOpen(false);
         } else if (isSettingsOpen) {
@@ -211,7 +197,7 @@ function App() {
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('keydown', handleEscapeKey);
     };
-  }, [gameState, isGameActive, isInventoryOpen, isCraftingOpen, isChatOpen, isMultiplayer, isSettingsOpen, isSaveManagerOpen, isFriendsOpen]);
+  }, [gameState, isGameActive, isInventoryOpen, isChatOpen, isMultiplayer, isSettingsOpen, isSaveManagerOpen, isFriendsOpen]);
 
   const handleLogin = (user: string, serverType: 'singleplayer' | 'multiplayer', roomInfo?: RoomData) => {
     console.log('Login attempt:', { user, serverType, roomInfo });
@@ -296,18 +282,6 @@ function App() {
     }
   };
 
-  const handleCraft = (recipe: CraftingRecipe) => {
-    if (!gameEngineRef.current) return;
-    
-    const inventory = gameEngineRef.current.getInventory();
-    if (CraftingManager.craftRecipe(recipe, inventory)) {
-      // Update UI
-      setHotbar(inventory.getHotbarSlots());
-      setAllInventorySlots(inventory.getAllSlots());
-      console.log(`Crafted: ${recipe.name}`);
-    }
-  };
-
   const handleInviteFriend = (friendId: string) => {
     // TODO: Implement friend invitation system
     console.log(`Inviting friend ${friendId} to room ${roomData?.id}`);
@@ -333,7 +307,6 @@ function App() {
     setIsSaveManagerOpen(false);
     setIsChatOpen(false);
     setIsFriendsOpen(false);
-    setIsCraftingOpen(false);
     
     // Clear game engine reference
     gameEngineRef.current = null;
@@ -394,7 +367,6 @@ function App() {
         onHotbarSelect={handleHotbarSelect}
         onInventoryOpen={() => setIsInventoryOpen(true)}
         onSettingsOpen={() => setIsSettingsOpen(true)}
-        onCraftingOpen={() => setIsCraftingOpen(true)}
         health={health}
         maxHealth={maxHealth}
         hunger={hunger}
@@ -419,14 +391,6 @@ function App() {
         inventory={allInventorySlots}
         onSlotClick={handleInventorySlotClick}
         selectedSlot={selectedInventorySlot}
-      />
-
-      <CraftingUI
-        isOpen={isCraftingOpen}
-        onClose={() => setIsCraftingOpen(false)}
-        inventory={gameEngineRef.current?.getInventory() || new Inventory()}
-        onCraft={handleCraft}
-        isCraftingTable={false} // For now, always use 2x2 grid
       />
 
       <SettingsUI
